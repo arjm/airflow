@@ -96,6 +96,16 @@ class DataFlowJavaOperator(BaseOperator):
     :param job_class: The name of the dataflow job class to be executed, it
         is often not the main class configured in the dataflow jar file.
     :type job_class: str
+    :param add_random_jobname_suffix: Set to True to append a random suffix
+        to the job_name in the format of <job_name>-<hash>. For ex: my-job-eccd9700
+        Otherwise, appends the execution date of the DAG run to the job name
+        in the format of <job_name>t<execution_date>. For ex: my-jobt2022-01-25-08-24
+        Defaults to True.
+    :type add_random_jobname_suffix: bool
+    :param cancel_existing_job: Set to cancel any already running dataflow job.
+        Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
+        must be set to False. Otherwise, the operator would throw an AirflowException.
+    :type add_random_jobname_suffix: bool
 
     ``jar``, ``options``, and ``job_name`` are templated so you can use variables in them.
 
@@ -153,6 +163,8 @@ class DataFlowJavaOperator(BaseOperator):
             delegate_to=None,
             poll_sleep=10,
             job_class=None,
+            add_random_jobname_suffix=True,
+            cancel_existing_job=False,
             *args,
             **kwargs):
         super(DataFlowJavaOperator, self).__init__(*args, **kwargs)
@@ -169,6 +181,8 @@ class DataFlowJavaOperator(BaseOperator):
         self.options = options
         self.poll_sleep = poll_sleep
         self.job_class = job_class
+        self.add_random_jobname_suffix = add_random_jobname_suffix
+        self.cancel_existing_job = cancel_existing_job
 
     def execute(self, context):
         bucket_helper = GoogleCloudBucketHelper(
@@ -182,7 +196,8 @@ class DataFlowJavaOperator(BaseOperator):
         dataflow_options.update(self.options)
 
         hook.start_java_dataflow(self.job_name, dataflow_options,
-                                 self.jar, self.job_class)
+                                 self.jar, self.job_class, self.add_random_jobname_suffix,
+                                 self.cancel_existing_job, context)
 
 
 class DataflowTemplateOperator(BaseOperator):
@@ -209,6 +224,15 @@ class DataflowTemplateOperator(BaseOperator):
         Cloud Platform for the dataflow job status while the job is in the
         JOB_STATE_RUNNING state.
     :type poll_sleep: int
+    :param add_random_jobname_suffix: Set to True to append a random suffix
+        to the job_name in the format of <job_name>-<hash>.
+        Otherwise, appends the execution date of the DAG run to the job name
+        in the format of <job_name>t<execution_date>. Defaults to True.
+    :type add_random_jobname_suffix: bool
+    :param cancel_existing_job: Set to cancel any already running dataflow job.
+        Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
+        must be set to False. Otherwise, the operator would throw an AirflowException.
+    :type add_random_jobname_suffix: bool
 
     It's a good practice to define dataflow_* parameters in the default_args of the dag
     like the project, zone and staging location.
@@ -271,6 +295,8 @@ class DataflowTemplateOperator(BaseOperator):
             gcp_conn_id='google_cloud_default',
             delegate_to=None,
             poll_sleep=10,
+            add_random_jobname_suffix=True,
+            cancel_existing_job=False,
             *args,
             **kwargs):
         super(DataflowTemplateOperator, self).__init__(*args, **kwargs)
@@ -285,6 +311,8 @@ class DataflowTemplateOperator(BaseOperator):
         self.template = template
         self.job_name = job_name
         self.parameters = parameters
+        self.add_random_jobname_suffix = add_random_jobname_suffix
+        self.cancel_existing_job = cancel_existing_job
 
     def execute(self, context):
         hook = DataFlowHook(gcp_conn_id=self.gcp_conn_id,
@@ -292,7 +320,8 @@ class DataflowTemplateOperator(BaseOperator):
                             poll_sleep=self.poll_sleep)
 
         hook.start_template_dataflow(self.job_name, self.dataflow_default_options,
-                                     self.parameters, self.template)
+                                     self.parameters, self.template, self.add_random_jobname_suffix,
+                                     self.cancel_existing_job, context)
 
 
 class DataFlowPythonOperator(BaseOperator):
@@ -331,6 +360,15 @@ class DataFlowPythonOperator(BaseOperator):
         Cloud Platform for the dataflow job status while the job is in the
         JOB_STATE_RUNNING state.
     :type poll_sleep: int
+    :param add_random_jobname_suffix: Set to True to append a random suffix
+        to the job_name in the format of <job_name>-<hash>.
+        Otherwise, appends the execution date of the DAG run to the job name
+        in the format of <job_name>t<execution_date>. Defaults to True.
+    :type add_random_jobname_suffix: bool
+    :param cancel_existing_job: Set to cancel any already running dataflow job.
+        Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
+        must be set to False. Otherwise, the operator would throw an AirflowException.
+    :type add_random_jobname_suffix: bool
     """
     template_fields = ['options', 'dataflow_default_options', 'job_name', 'py_file']
 
@@ -345,6 +383,8 @@ class DataFlowPythonOperator(BaseOperator):
             gcp_conn_id='google_cloud_default',
             delegate_to=None,
             poll_sleep=10,
+            add_random_jobname_suffix=True,
+            cancel_existing_job=False,
             *args,
             **kwargs):
 
@@ -360,6 +400,8 @@ class DataFlowPythonOperator(BaseOperator):
         self.gcp_conn_id = gcp_conn_id
         self.delegate_to = delegate_to
         self.poll_sleep = poll_sleep
+        self.add_random_jobname_suffix = add_random_jobname_suffix
+        self.cancel_existing_job = cancel_existing_job
 
     def execute(self, context):
         """Execute the python dataflow job."""
@@ -376,9 +418,8 @@ class DataFlowPythonOperator(BaseOperator):
             r'[A-Z]', lambda x: '_' + x.group(0).lower(), name)
         formatted_options = {camel_to_snake(key): dataflow_options[key]
                              for key in dataflow_options}
-        hook.start_python_dataflow(
-            self.job_name, formatted_options,
-            self.py_file, self.py_options)
+        hook.start_python_dataflow(self.job_name, formatted_options, self.py_file, self.py_options,
+            self.add_random_jobname_suffix, self.cancel_existing_job, context)
 
 
 class GoogleCloudBucketHelper(object):
