@@ -20,6 +20,7 @@ import os
 import re
 import uuid
 import copy
+import logging
 import tempfile
 
 from airflow.contrib.hooks.gcs_hook import GoogleCloudStorageHook
@@ -105,7 +106,11 @@ class DataFlowJavaOperator(BaseOperator):
     :param cancel_existing_job: Set to cancel any already running dataflow job.
         Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
         must be set to False. Otherwise, the operator would throw an AirflowException.
-    :type add_random_jobname_suffix: bool
+    :type cancel_existing_job: bool
+    :param track_job: Set to track any already running dataflow job.
+        Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
+        must be set to False. Otherwise, the operator would throw an AirflowException.
+    :type track_job: bool
 
     ``jar``, ``options``, and ``job_name`` are templated so you can use variables in them.
 
@@ -165,6 +170,7 @@ class DataFlowJavaOperator(BaseOperator):
             job_class=None,
             add_random_jobname_suffix=True,
             cancel_existing_job=False,
+            track_job=False,
             *args,
             **kwargs):
         super(DataFlowJavaOperator, self).__init__(*args, **kwargs)
@@ -183,8 +189,14 @@ class DataFlowJavaOperator(BaseOperator):
         self.job_class = job_class
         self.add_random_jobname_suffix = add_random_jobname_suffix
         self.cancel_existing_job = cancel_existing_job
+        self.track_job = track_job
 
+    # [EWT-1265]: Added logic to add execution date as suffix to the job name
     def execute(self, context):
+        if not self.add_random_jobname_suffix:
+            # Add execution time to job name if we are not appending a random suffix
+            self.job_name = _add_execution_date_to_job_name(self.job_name, context)
+
         bucket_helper = GoogleCloudBucketHelper(
             self.gcp_conn_id, self.delegate_to)
         self.jar = bucket_helper.google_cloud_to_local(self.jar)
@@ -197,7 +209,7 @@ class DataFlowJavaOperator(BaseOperator):
 
         hook.start_java_dataflow(self.job_name, dataflow_options,
                                  self.jar, self.job_class, self.add_random_jobname_suffix,
-                                 self.cancel_existing_job, context)
+                                 self.cancel_existing_job, self.track_job)
 
 
 class DataflowTemplateOperator(BaseOperator):
@@ -232,7 +244,11 @@ class DataflowTemplateOperator(BaseOperator):
     :param cancel_existing_job: Set to cancel any already running dataflow job.
         Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
         must be set to False. Otherwise, the operator would throw an AirflowException.
-    :type add_random_jobname_suffix: bool
+    :type cancel_existing_job: bool
+    :param track_job: Set to track any already running dataflow job.
+        Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
+        must be set to False. Otherwise, the operator would throw an AirflowException.
+    :type track_job: bool
 
     It's a good practice to define dataflow_* parameters in the default_args of the dag
     like the project, zone and staging location.
@@ -297,6 +313,7 @@ class DataflowTemplateOperator(BaseOperator):
             poll_sleep=10,
             add_random_jobname_suffix=True,
             cancel_existing_job=False,
+            track_job=False,
             *args,
             **kwargs):
         super(DataflowTemplateOperator, self).__init__(*args, **kwargs)
@@ -313,15 +330,21 @@ class DataflowTemplateOperator(BaseOperator):
         self.parameters = parameters
         self.add_random_jobname_suffix = add_random_jobname_suffix
         self.cancel_existing_job = cancel_existing_job
+        self.track_job = track_job
 
+    # [EWT-1265]: Added logic to add execution date as suffix to the job name
     def execute(self, context):
+        if not self.add_random_jobname_suffix:
+            # Add execution time to job name if we are not appending a random suffix
+            self.job_name = _add_execution_date_to_job_name(self.job_name, context)
+
         hook = DataFlowHook(gcp_conn_id=self.gcp_conn_id,
                             delegate_to=self.delegate_to,
                             poll_sleep=self.poll_sleep)
 
         hook.start_template_dataflow(self.job_name, self.dataflow_default_options,
                                      self.parameters, self.template, self.add_random_jobname_suffix,
-                                     self.cancel_existing_job, context)
+                                     self.cancel_existing_job, self.track_job)
 
 
 class DataFlowPythonOperator(BaseOperator):
@@ -368,7 +391,11 @@ class DataFlowPythonOperator(BaseOperator):
     :param cancel_existing_job: Set to cancel any already running dataflow job.
         Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
         must be set to False. Otherwise, the operator would throw an AirflowException.
-    :type add_random_jobname_suffix: bool
+    :type cancel_existing_job: bool
+    :param track_job: Set to track any already running dataflow job.
+        Defaults to False. Note that to use this feature, ``add_random_jobname_suffix``
+        must be set to False. Otherwise, the operator would throw an AirflowException.
+    :type track_job: bool
     """
     template_fields = ['options', 'dataflow_default_options', 'job_name', 'py_file']
 
@@ -385,6 +412,7 @@ class DataFlowPythonOperator(BaseOperator):
             poll_sleep=10,
             add_random_jobname_suffix=True,
             cancel_existing_job=False,
+            track_job=False,
             *args,
             **kwargs):
 
@@ -402,9 +430,15 @@ class DataFlowPythonOperator(BaseOperator):
         self.poll_sleep = poll_sleep
         self.add_random_jobname_suffix = add_random_jobname_suffix
         self.cancel_existing_job = cancel_existing_job
+        self.track_job = track_job
 
+    # [EWT-1265]: Added logic to add execution date as suffix to the job name
     def execute(self, context):
         """Execute the python dataflow job."""
+        if not self.add_random_jobname_suffix:
+            # Add execution time to job name if we are not appending a random suffix
+            self.job_name = _add_execution_date_to_job_name(self.job_name, context)
+
         bucket_helper = GoogleCloudBucketHelper(
             self.gcp_conn_id, self.delegate_to)
         self.py_file = bucket_helper.google_cloud_to_local(self.py_file)
@@ -419,7 +453,7 @@ class DataFlowPythonOperator(BaseOperator):
         formatted_options = {camel_to_snake(key): dataflow_options[key]
                              for key in dataflow_options}
         hook.start_python_dataflow(self.job_name, formatted_options, self.py_file, self.py_options,
-            self.add_random_jobname_suffix, self.cancel_existing_job, context)
+            self.add_random_jobname_suffix, self.cancel_existing_job, self.track_job)
 
 
 class GoogleCloudBucketHelper(object):
@@ -467,3 +501,14 @@ class GoogleCloudBucketHelper(object):
         raise Exception(
             'Failed to download Google Cloud Storage (GCS) object: {}'
             .format(file_name))
+
+# [EWT-1265]: Added fn to add execution date as suffix to the job name
+def _add_execution_date_to_job_name(job_name, context):
+    """Adds execution date to the dataflow job name as suffix"""
+    logging.info(
+        f"Suffixing the job name {job_name} with the execution time as 'append_job_name' "
+        f"is set to False"
+    )
+    new_job_name = f"{job_name}t{context['execution_date'].strftime('%Y-%m-%d-%H-%M')}"
+    logging.info(f"New job name: {new_job_name}")
+    return new_job_name

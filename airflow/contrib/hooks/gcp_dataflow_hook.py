@@ -602,15 +602,15 @@ class DataFlowHook(GoogleCloudBaseHook):
     # [EWT-1001]: Added appropriate args and fn calls for tracking and cancelling
     @GoogleCloudBaseHook._Decorators.provide_gcp_credential_file
     def _start_dataflow(self, variables, name, command_prefix, label_formatter,
-        cancel_existing_job=False):
+        cancel_existing_job=False, track_job=False):
         variables = self._set_variables(variables)
         cmd = command_prefix + self._build_cmd(variables, label_formatter)
         # Track or cancel any already running dataflow job with the same name
-        # depending on the op params `add_random_jobname_suffix` and `cancel_existing_job`
+        # depending on the op params `track_job` and `cancel_existing_job`
         # For more info on how this logic would behave under different scenarios
-        # Refer: https://jira.twitter.biz/browse/EWT-1001?focusedCommentId=20722956&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-20722956  # noqa
+        # Refer: https://jira.twitter.biz/browse/EWT-1265
         tracking_existing_job, job_id = self._track_or_cancel_existing_dataflow_job(
-            name, variables, cancel_existing_job)
+            name, variables, cancel_existing_job, track_job)
         if not tracking_existing_job:
             job_id = _Dataflow(cmd).wait_for_done()
         _DataflowJob(self.get_conn(), variables['project'], name,
@@ -626,14 +626,10 @@ class DataFlowHook(GoogleCloudBaseHook):
             variables['region'] = DEFAULT_DATAFLOW_LOCATION
         return variables
 
-    # [EWT-1001]: Added appropriate args and fn calls for job naming
+    # [EWT-1001]: Added appropriate args for job tracking or cancelling
     def start_java_dataflow(self, job_name, variables, dataflow, job_class=None,
-        append_job_name=True, cancel_existing_job=False, context=None):
-        self._validate_params(cancel_existing_job, append_job_name)
-        if not append_job_name:
-            # Add execution time to job name if we are not appending a random suffix
-            job_name = self._add_execution_date_to_job_name(job_name, context)
-
+        append_job_name=True, cancel_existing_job=False, track_job=False):
+        self._validate_params(cancel_existing_job, track_job, append_job_name)
         name = self._build_dataflow_job_name(job_name, append_job_name)
         variables['jobName'] = name
 
@@ -643,29 +639,21 @@ class DataFlowHook(GoogleCloudBaseHook):
         command_prefix = (["java", "-cp", dataflow, job_class] if job_class
                           else ["java", "-jar", dataflow])
         self._start_dataflow(variables, name, command_prefix, label_formatter,
-            cancel_existing_job)
+            cancel_existing_job, track_job)
 
-    # [EWT-1001]: Added appropriate args and fn calls for job naming
+    # [EWT-1001]: Added appropriate args for job tracking or cancelling
     def start_template_dataflow(self, job_name, variables, parameters, dataflow_template,
-        append_job_name=True, cancel_existing_job=False, context=None):
-        self._validate_params(cancel_existing_job, append_job_name)
-        if not append_job_name:
-            # Add execution time to job name if we are not appending a random suffix
-            job_name = self._add_execution_date_to_job_name(job_name, context)
-
+        append_job_name=True, cancel_existing_job=False, track_job=False):
+        self._validate_params(cancel_existing_job, track_job, append_job_name)
         variables = self._set_variables(variables)
         name = self._build_dataflow_job_name(job_name, append_job_name)
         self._start_template_dataflow(
-            name, variables, parameters, dataflow_template, cancel_existing_job)
+            name, variables, parameters, dataflow_template, cancel_existing_job, track_job)
 
-    # [EWT-1001]: Added appropriate args and fn calls for job naming
+    # [EWT-1001]: Added appropriate args for job tracking or cancelling
     def start_python_dataflow(self, job_name, variables, dataflow, py_options,
-        append_job_name=True, cancel_existing_job=False, context=None):
-        self._validate_params(cancel_existing_job, append_job_name)
-        if not append_job_name:
-            # Add execution time to job name if we are not appending a random suffix
-            job_name = self._add_execution_date_to_job_name(job_name, context)
-
+        append_job_name=True, cancel_existing_job=False, track_job=False):
+        self._validate_params(cancel_existing_job, track_job, append_job_name)
         name = self._build_dataflow_job_name(job_name, append_job_name)
         variables['job_name'] = name
 
@@ -673,7 +661,7 @@ class DataFlowHook(GoogleCloudBaseHook):
             return ['--labels={}={}'.format(key, value)
                     for key, value in labels_dict.items()]
         self._start_dataflow(variables, name, ["python3"] + py_options + [dataflow],
-                             label_formatter)
+                             label_formatter, cancel_existing_job, track_job)
 
     @staticmethod
     def _build_dataflow_job_name(job_name, append_job_name=True):
@@ -707,10 +695,10 @@ class DataFlowHook(GoogleCloudBaseHook):
 
     # [EWT-1001]: Added appropriate args and fn calls for tracking and cancelling
     def _start_template_dataflow(self, name, variables, parameters,
-                                 dataflow_template, cancel_existing_job=False):
+                                 dataflow_template, cancel_existing_job=False, track_job=False):
         response = None
         tracking_existing_job, job_id = self._track_or_cancel_existing_dataflow_job(
-            name, variables, cancel_existing_job)
+            name, variables, cancel_existing_job, track_job)
         if not tracking_existing_job:
             # Builds RuntimeEnvironment from variables dictionary
             # https://cloud.google.com/dataflow/docs/reference/rest/v1b3/RuntimeEnvironment
@@ -736,29 +724,27 @@ class DataFlowHook(GoogleCloudBaseHook):
                      self.poll_sleep, job_id=job_id, num_retries=self.num_retries).wait_for_done()
         return response
 
-    # [EWT-1001]: Added fn to add execution date as suffix to the job name
-    def _add_execution_date_to_job_name(self, job_name, context):
-        """Adds execution date to the dataflow job name as suffix"""
-        self.log.info(
-            f"Suffixing the job name {job_name} with the execution time as 'append_job_name' "
-            f"is set to False"
-        )
-        new_job_name = f"{job_name}t{context['execution_date'].strftime('%Y-%m-%d-%H-%M')}"
-        self.log.info(f"New job name: {new_job_name}")
-        return new_job_name
-
     # [EWT-1001]: Added fn to validate new input params for dataflow operators
     @staticmethod
-    def _validate_params(cancel_existing_job, append_job_name):
-        # cancel_existing_job should only be set to True if append_job_name is set to False
-        if cancel_existing_job and append_job_name:
+    def _validate_params(cancel_existing_job, track_job, append_job_name):
+        # track_job or cancel_existing_job should only be set to True
+        # if append_job_name is set to False
+        if append_job_name:
+            if cancel_existing_job or track_job:
+                raise AirflowException(
+                    "'cancel_existing_job' can only be used when 'append_job_name' is set to False"
+                )
+
+        # Both track_job and cancel_existing_job cannot be set at the same time
+        if cancel_existing_job and track_job:
             raise AirflowException(
-                "'cancel_existing_job' can only be used when 'append_job_name' is set to False"
+                "Both 'cancel_existing_job' and 'track_job' params cannot be set at the same time"
             )
 
-    # [EWT-1001]: Added fn for job tracking and cancelling
-    def _track_or_cancel_existing_dataflow_job(self, job_name, variables, cancel_existing_job):
-        """Cancels any already running dataflow job with the same name"""
+    # [EWT-1001]: Added fn for job tracking or cancelling
+    def _track_or_cancel_existing_dataflow_job(self, job_name, variables, cancel_existing_job,
+        track_job):
+        """Tracks or Cancels any already running dataflow job with the same name"""
         try:
             project_id = variables['project']
             location = variables['region']
@@ -775,12 +761,17 @@ class DataFlowHook(GoogleCloudBaseHook):
                 wait_until_finished=None
             )
 
+            if cancel_existing_job and track_job:
+                raise AirflowException(
+                    "Both 'cancel_existing_job' and 'track_job' params cannot be set"
+                )
+
             if cancel_existing_job:
                 self.log.info(f"Cancelling any already running Dataflow job with the name {job_name}")
                 dataflow_controller.cancel()
                 return False, None
 
-            else:
+            if track_job:
                 self.log.info(f"Tracking any already running Dataflow job with the name {job_name}")
                 jobs = dataflow_controller.get_jobs()
                 if not jobs:
@@ -807,7 +798,7 @@ class DataFlowHook(GoogleCloudBaseHook):
                 except IndexError:
                     # if no job is found with the provided job name
                     self.log.info(f"No running dataflow jobs found for job name {job_name}")
-                    return False, None
+            return False, None
         except Exception as err:
             err_msg = f"Error occurred when checking for existing dataflow jobs with job name: {job_name}"
             self.log.error(err_msg)
