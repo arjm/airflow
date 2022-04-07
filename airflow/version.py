@@ -18,7 +18,7 @@
 # under the License.
 #
 
-version = '1.10.14+twtr5'
+version = '1.10.14+twtr6'
 
 
 
