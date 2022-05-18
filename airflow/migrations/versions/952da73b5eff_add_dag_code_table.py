@@ -26,6 +26,8 @@ Create Date: 2020-03-12 12:39:01.797462
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import text
+from sqlalchemy.dialects import mysql
 
 from airflow.models.dagcode import DagCode
 
@@ -58,6 +60,12 @@ def upgrade():
         sa.Column('source_code', sa.UnicodeText(), nullable=False),
         sa.Column('last_updated', sa.TIMESTAMP(timezone=True), nullable=False),
     )
+
+    op.alter_column(table_name='dag_code',
+                    column_name='last_updated',
+                    type_=mysql.TIMESTAMP(fsp=6),
+                    nullable=False,
+                    server_default=text('CURRENT_TIMESTAMP(6)'))
 
     conn = op.get_bind()
     if conn.dialect.name != 'sqlite':

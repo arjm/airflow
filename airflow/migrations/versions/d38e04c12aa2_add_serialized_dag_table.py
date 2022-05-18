@@ -25,6 +25,7 @@ Create Date: 2019-08-01 14:39:35.616417
 """
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import text
 from sqlalchemy.dialects import mysql
 
 from airflow.models.base import COLLATION_ARGS
@@ -64,15 +65,13 @@ def upgrade():
         conn.execute("SET time_zone = '+00:00'")
         cur = conn.execute("SELECT @@explicit_defaults_for_timestamp")
         res = cur.fetchall()
-        if res[0][0] == 0:
-            raise Exception("Global variable explicit_defaults_for_timestamp needs to be on (1) for mysql")
 
         op.alter_column(
             table_name="serialized_dag",
             column_name="last_updated",
             type_=mysql.TIMESTAMP(fsp=6),
             nullable=False,
-        )
+            server_default=text('CURRENT_TIMESTAMP(6)'))
     else:
         # sqlite and mssql datetime are fine as is.  Therefore, not converting
         if conn.dialect.name in ("sqlite", "mssql"):
