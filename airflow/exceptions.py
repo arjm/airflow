@@ -146,6 +146,13 @@ class DagFileExists(AirflowBadRequest):
         warnings.warn("DagFileExists is deprecated and will be removed.", DeprecationWarning, stacklevel=2)
 
 
+class DagFileExistsInDagBag(AirflowBadRequest):
+    """
+    Raise when a DAG ID is still in DagBag i.e., DAG file is in DAG folder. This class is
+    added because DagFileExists class throws status code 400 error during the deletion of
+    DAG from UI instead of a warning message
+    """
+
 class DuplicateTaskIdFound(AirflowException):
     """Raise when a Task with duplicate task_id is defined in the same DAG"""
 

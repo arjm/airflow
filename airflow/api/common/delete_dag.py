@@ -17,11 +17,12 @@
 # under the License.
 """Delete DAGs APIs."""
 import logging
+import os
 
 from sqlalchemy import and_, or_
 
 from airflow import models
-from airflow.exceptions import AirflowException, DagNotFound
+from airflow.exceptions import AirflowException, DagFileExistsInDagBag, DagNotFound
 from airflow.models import DagModel, TaskFail
 from airflow.models.serialized_dag import SerializedDagModel
 from airflow.utils.db import get_sqla_model_classes
@@ -41,6 +42,16 @@ def delete_dag(dag_id: str, keep_records_in_log: bool = True, session=None) -> i
     :param session: session used
     :return count of deleted dags
     """
+
+    dag = session.query(DagModel).filter(DagModel.dag_id == dag_id).first()
+    log.info(f"The file location of dag is {dag.fileloc}"
+             f" and it exists {os.path.exists(dag.fileloc)}")
+
+    if dag.fileloc and os.path.exists(dag.fileloc):
+        raise DagFileExistsInDagBag("Dag id {} is still in DagBag. "
+                            "Remove the DAG file first: {}".format(dag_id, dag.fileloc))
+
+
     log.info("Deleting DAG: %s", dag_id)
     running_tis = (
         session.query(models.TaskInstance.state)
@@ -50,7 +61,6 @@ def delete_dag(dag_id: str, keep_records_in_log: bool = True, session=None) -> i
     )
     if running_tis:
         raise AirflowException("TaskInstances still running")
-    dag = session.query(DagModel).filter(DagModel.dag_id == dag_id).first()
     if dag is None:
         raise DagNotFound(f"Dag id {dag_id} not found")
 
