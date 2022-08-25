@@ -26,6 +26,7 @@ Create Date: 2020-06-16 21:44:02.883132
 
 from alembic import op
 from sqlalchemy.dialects import mysql
+from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
 revision = 'a66efa278eea'
@@ -42,7 +43,11 @@ def upgrade():
     conn = op.get_bind()
     if conn.dialect.name == "mysql":
         op.alter_column(
-            table_name=TABLE_NAME, column_name=COLUMN_NAME, type_=mysql.TIMESTAMP(fsp=6), nullable=False
+            table_name=TABLE_NAME,
+            column_name=COLUMN_NAME,
+            type_=mysql.TIMESTAMP(fsp=6),
+            nullable=False,
+            server_default=text('CURRENT_TIMESTAMP(6)')
         )
 
 

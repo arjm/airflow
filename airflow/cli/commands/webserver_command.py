@@ -391,8 +391,6 @@ def webserver(args):
         )
 
         run_args = [
-            sys.executable,
-            '-m',
             'gunicorn',
             '--workers',
             str(num_workers),
