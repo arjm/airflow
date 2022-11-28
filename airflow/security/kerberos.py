@@ -108,13 +108,6 @@ def renew_from_kt(principal: Optional[str], keytab: str, exit_on_fail: bool = Tr
                 return subp.returncode
 
     global NEED_KRB181_WORKAROUND
-    if NEED_KRB181_WORKAROUND is None:
-        NEED_KRB181_WORKAROUND = detect_conf_var()
-    if NEED_KRB181_WORKAROUND:
-        # (From: HUE-640). Kerberos clock have seconds level granularity. Make sure we
-        # renew the ticket after the initial valid time.
-        time.sleep(1.5)
-        ret = perform_krb181_workaround(principal)
         if exit_on_fail and ret != 0:
             sys.exit(ret)
         else:
